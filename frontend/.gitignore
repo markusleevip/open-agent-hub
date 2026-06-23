@@ -1,6 +1,7 @@
 node_modules/
 .npm-cache/
 .npm-tmp/
+.vite/
 dist/
 .DS_Store
 .idea/
