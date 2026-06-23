@@ -234,7 +234,7 @@ hub.sync_project(
 
 ## MCP 工具速查
 
-接入后，你的 Agent 可使用 **21 个内置工具**（前缀 `hub.`）：
+接入后，你的 Agent 可使用 **25 个内置工具**（前缀 `hub.`）：
 
 | 类别 | 工具 | 说明 |
 |---|---|---|
@@ -257,6 +257,10 @@ hub.sync_project(
 | | `hub.invoke_connected_tool` | 调用外部 MCP Server 上的工具（代理转发） |
 | **Skill** | `hub.list_skills` | 列出可用的团队 Skill |
 | | `hub.search_skills` | 按关键词搜索 Skill |
+| | `hub.get_skill` | 按 ID 获取单个 Skill |
+| **项目上下文** | `hub.get_project_stack` | 获取已绑定项目的技术栈 |
+| | `hub.get_project_structure` | 获取已绑定项目的目录结构 |
+| | `hub.update_project_context` | 更新项目描述、技术栈或目录结构 |
 | **同步** | `hub.sync_project` | 绑定工作目录到项目并获取快照 |
 | **审计** | `hub.report_action` | 上报操作记录用于审计 |
 
@@ -352,183 +356,6 @@ scripts/    start-backend.sh、e2e-test.sh
 - [用户使用手册](docs/user_manual.md) — 控制台功能详解、客户端接入指南与 FAQ
 - [产品规格文档](docs/spec.md) — 完整技术规格
 - [Agent 工程指南](AGENTS.md) — 面向 AI Agent 的开发指南
-
-## 许可证
-
-见 [LICENSE](LICENSE)。
-# Open Agent Hub
-
-[English](README.md) | 简体中文
-
-Open Agent Hub 是一个基于 **MCP (Model Context Protocol)** 协议的 **AgentOps 平台**。它作为 AI 编码工具（Cursor、Claude Code、Cline 等）的中心化智能中枢，提供统一的**规则管理、跨会话记忆同步、团队级 Skill 分发、外部工具路由与安全策略拦截**能力。
-
-```
-┌────────────────────────────────────────────────────────┐
-│             AI Agents (Cursor, Claude Code, etc.)      │
-└───────────────────────────┬────────────────────────────┘
-                            │  HTTPS / Streamable HTTP
-                            ▼
-┌────────────────────────────────────────────────────────┐
-│                     MCP Gateway                        │
-│        (鉴权、租户隔离、工具路由、策略拦截)              │
-└──────────────┬──────────────┬──────────────┬───────────┘
-               │              │              │
-        Context Service  Memory Service  Tool Proxy
-        (规则与偏好)      (团队记忆)      (外部 MCP)
-```
-
-所有数据都按四层租户模型隔离：**Organization（组织）→ Workspace（工作区）→ Project（项目）→ User（用户）**，其中 Workspace 是核心隔离单元。
-
-深入阅读：[用户使用手册](docs/user_manual.md) · [完整产品规格](docs/spec.md) · [Agent 工程指南](AGENTS.md)
-
-## 环境要求
-
-- **Go 1.26+** — SQLite 驱动依赖 CGO，需要本机有 C 编译工具链
-- **Node.js 18+** 及 npm（前端）
-- **Docker**（可选，容器化部署用）
-
-## 快速开始（本地开发）
-
-### 1. 启动后端
-
-后端是单个 Go 二进制，同时运行两个 HTTP 服务：**Console REST API**（默认 `:8084`）和 **MCP Gateway**（默认 `:8085`）。
-
-```bash
-# 可选：自定义配置（所有变量均有默认值）
-cp backend/.env.example backend/.env
-
-# 启动（自动加载 backend/.env，若存在）
-./scripts/start-backend.sh
-
-# 等价的手动方式：
-# cd backend && go run ./cmd/server/
-```
-
-脚本还支持 `./scripts/start-backend.sh build`（先编译再运行）和 `./scripts/start-backend.sh test`（跑测试套件）。
-
-首次启动会自动建库（默认 SQLite，位于 `backend/data/openagenthub.db`）并初始化默认管理员账号。
-
-### 2. 启动前端
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-打开 http://localhost:13000，用默认管理员登录：
-
-- **邮箱：** `admin@open-agent-hub.dev`
-- **密码：** `admin123`
-
-Vite 开发服务器已内置代理：`/api`、`/health` → `:8084`，`/mcp` → `:8085`，无需额外配置。
-
-### 3. 接入 AI 客户端
-
-1. 在控制台进入 **「MCP Tokens」** 页面生成 Token（仅展示一次，格式 `pat_...`）。
-2. 用 `openagent` CLI 绑定代码仓库：
-
-   ```bash
-   cd backend && go build ./cmd/openagent/   # 编译 CLI
-
-   # 在你的项目仓库内：
-   openagent init --server http://localhost:8085 --token pat_xxx
-   openagent sync     # 增量刷新本地快照（按 ETag）
-   openagent status   # 查看本地状态并检查服务端是否有新版本
-   ```
-
-   `init` 会落盘 `.openagent/` 快照、向 `CLAUDE.md`/`AGENTS.md` 注入托管块，并生成供 MCP 客户端使用的 `.mcp.json`。凭据保存在 `~/.openagent/credentials.json`，绝不写入项目目录。`.openagent/` 是本地生成快照，建议整体加入项目 `.gitignore`；其他人更新服务端共享配置后，在本地执行 `openagent sync` 拉取最新版本。
-
-3. 也可以让任意 MCP 客户端直连网关：`POST http://localhost:8085/mcp`，请求头携带 `Authorization: Bearer pat_xxx`（旧客户端可用 `GET /sse` + `POST /message` 传输）。无法运行 CLI 的客户端（如 Cline），让 Agent 在任务开始时调用一次 `hub.sync_project`，传 `project_path=<其工作目录>` 和 `register_project=true`——项目会自动创建（名称由 Agent 给出语义命名），绑定在本会话内持续生效。
-
-各客户端的完整接入步骤见[用户使用手册](docs/user_manual.md)。
-
-## 配置
-
-全部配置通过环境变量加载（完整注释清单见 [backend/.env.example](backend/.env.example)）。关键项：
-
-| 环境变量 | 默认值 | 说明 |
-|---|---|---|
-| `CONSOLE_PORT` | `8084` | Console REST API |
-| `MCP_PORT` | `8085` | MCP Gateway |
-| `DB_TYPE` | `sqlite` | `sqlite`（开发）/ `postgres`（生产） |
-| `DB_DSN` | `data/openagenthub.db` | SQLite 文件路径或 Postgres DSN |
-| `JWT_SECRET` | 开发占位值 | **生产必须覆盖** |
-| `ENCRYPTION_KEY` | 开发占位值 | 32 字节密钥，加密连接器凭据——**生产必须覆盖** |
-| `BOOTSTRAP_EMAIL` / `BOOTSTRAP_PASSWORD` | `admin@open-agent-hub.dev` / `admin123` | 初始管理员——**生产必须改密码** |
-
-## 部署
-
-### 后端（Docker）
-
-```bash
-cd backend
-docker build -t open-agent-hub .
-
-docker run -d --name open-agent-hub \
-  -p 8084:8084 -p 8085:8085 \
-  -v openagent-data:/app/data \
-  -e JWT_SECRET=<随机密钥> \
-  -e ENCRYPTION_KEY=<随机32字节密钥> \
-  -e BOOTSTRAP_PASSWORD=<强密码> \
-  open-agent-hub
-```
-
-说明：
-
-- 上面三个 `-e` 在生产环境必须覆盖，否则服务启动时会打印安全警告。
-- 使用 SQLite（默认）时按上例挂载 `/app/data` 卷持久化；使用 PostgreSQL 时去掉卷挂载，改设 `-e DB_TYPE=postgres -e DB_DSN='host=... user=... password=... dbname=...'`。
-- 数据库迁移在启动时自动执行（GORM AutoMigrate + 版本化数据迁移），无需手动操作。
-
-### 前端（静态托管）
-
-后端**不托管**前端构建产物——需将 `frontend/dist/` 部署到任意静态服务器，并反向代理 API 路径：
-
-```bash
-cd frontend
-npm install
-npm run build      # 产物输出到 frontend/dist/
-```
-
-nginx 配置示例：
-
-```nginx
-server {
-    listen 80;
-
-    root /var/www/open-agent-hub;   # 即 frontend/dist/
-    index index.html;
-
-    location / {
-        try_files $uri $uri/ /index.html;   # SPA 回退
-    }
-
-    location /api/    { proxy_pass http://127.0.0.1:8084; }
-    location /health  { proxy_pass http://127.0.0.1:8084; }
-    location /mcp     { proxy_pass http://127.0.0.1:8085; }
-}
-```
-
-## 测试
-
-```bash
-# 单元测试与集成测试
-cd backend && go test ./...
-
-# 端到端测试（要求后端运行在 18084/18085 端口）
-cd backend && CONSOLE_PORT=18084 MCP_PORT=18085 go run ./cmd/server/   # 终端 1
-./scripts/e2e-test.sh                                                 # 终端 2，在仓库根目录执行
-```
-
-## 目录结构
-
-```
-backend/    Go 后端 — Console REST API + MCP Gateway (cmd/server)、
-            项目接入 CLI (cmd/openagent)
-frontend/   React + TypeScript + Ant Design 控制台（Vite）
-docs/       用户手册与完整产品规格
-scripts/    start-backend.sh、e2e-test.sh
-```
 
 ## 许可证
 

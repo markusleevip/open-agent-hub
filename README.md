@@ -234,7 +234,7 @@ The project is auto-created if it doesn't exist, and the binding persists for th
 
 ## MCP Tools Quick Reference
 
-After connecting, your agent has access to **21 built-in tools** (prefix `hub.`):
+After connecting, your agent has access to **25 built-in tools** (prefix `hub.`):
 
 | Category | Tool | Description |
 |---|---|---|
@@ -257,6 +257,10 @@ After connecting, your agent has access to **21 built-in tools** (prefix `hub.`)
 | | `hub.invoke_connected_tool` | Invoke a tool on an external MCP server (proxied) |
 | **Skills** | `hub.list_skills` | List available team skills |
 | | `hub.search_skills` | Search skills by keyword |
+| | `hub.get_skill` | Fetch a single skill by ID |
+| **Project Context** | `hub.get_project_stack` | Get the bound project's technology stack |
+| | `hub.get_project_structure` | Get the bound project's directory structure |
+| | `hub.update_project_context` | Update project description, stack, or structure |
 | **Sync** | `hub.sync_project` | Bind working directory to a project and fetch snapshot |
 | **Audit** | `hub.report_action` | Report an action for audit logging |
 
@@ -352,183 +356,6 @@ scripts/    start-backend.sh, e2e-test.sh
 - [User Manual](docs/user_manual.md) — Console walkthrough, client onboarding guide, and FAQ
 - [Product Spec](docs/spec.md) — Full technical specification
 - [Agent Engineering Guide](AGENTS.md) — Guide for AI agents working on this codebase
-
-## License
-
-See [LICENSE](LICENSE).
-# Open Agent Hub
-
-English | [简体中文](README_zh.md)
-
-Open Agent Hub is an **MCP-based AgentOps platform**. It acts as a central hub for AI coding agents (Cursor, Claude Code, Cline, etc.), providing unified rule management, cross-session memory sync, team-level Skill distribution, external-tool routing, and security policy enforcement — all over the [Model Context Protocol](https://modelcontextprotocol.io/).
-
-```
-┌────────────────────────────────────────────────────────┐
-│             AI Agents (Cursor, Claude Code, etc.)      │
-└───────────────────────────┬────────────────────────────┘
-                            │  HTTPS / Streamable HTTP
-                            ▼
-┌────────────────────────────────────────────────────────┐
-│                     MCP Gateway                        │
-│        (Auth, Tenant, Tool Routing, Policies)          │
-└──────────────┬──────────────┬──────────────┬───────────┘
-               │              │              │
-        Context Service  Memory Service  Tool Proxy
-        (Rules & Prefs)  (Team Memory)   (External MCP)
-```
-
-Everything is scoped by a four-level tenant model: **Organization → Workspace → Project → User**, with Workspace as the core isolation unit.
-
-Further reading (in Chinese): [User Manual](docs/user_manual.md) · [Full Spec](docs/spec.md) · [Agent Engineering Guide](AGENTS.md)
-
-## Prerequisites
-
-- **Go 1.26+** — the SQLite driver requires CGO, so a C toolchain must be available
-- **Node.js 18+** with npm (frontend)
-- **Docker** (optional, for containerized deployment)
-
-## Quick Start (Local Development)
-
-### 1. Start the backend
-
-The backend is a single Go binary running two HTTP servers: the **Console REST API** (default `:8084`) and the **MCP Gateway** (default `:8085`).
-
-```bash
-# Optional: customize config (all variables have sane defaults)
-cp backend/.env.example backend/.env
-
-# Start (auto-loads backend/.env if present)
-./scripts/start-backend.sh
-
-# Equivalent manual form:
-# cd backend && go run ./cmd/server/
-```
-
-The script also supports `./scripts/start-backend.sh build` (compile then run) and `./scripts/start-backend.sh test` (run the test suite).
-
-On first start the database is created automatically (SQLite at `backend/data/openagenthub.db` by default) and a default admin account is seeded.
-
-### 2. Start the frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Open http://localhost:13000 and log in with the default admin:
-
-- **Email:** `admin@open-agent-hub.dev`
-- **Password:** `admin123`
-
-The Vite dev server already proxies `/api`, `/health` → `:8084` and `/mcp` → `:8085`, so no extra configuration is needed.
-
-### 3. Connect an AI client
-
-1. In the console, go to **MCP Tokens** and generate a token (shown once, format `pat_...`).
-2. Bind your code repository with the `openagent` CLI:
-
-   ```bash
-   cd backend && go build ./cmd/openagent/   # build the CLI
-
-   # In your project repository:
-   openagent init --server http://localhost:8085 --token pat_xxx
-   openagent sync     # refresh the local snapshot (ETag-incremental)
-   openagent status   # show local state and check whether the server has a newer snapshot
-   ```
-
-   `init` writes the `.openagent/` snapshot, injects managed blocks into `CLAUDE.md`/`AGENTS.md`, and generates `.mcp.json` for MCP clients. Credentials are stored in `~/.openagent/credentials.json`, never inside the project. `.openagent/` is a local generated snapshot and should usually be ignored by Git; when another teammate updates shared server-side config, run `openagent sync` locally to pull the latest version.
-
-3. Alternatively, point any MCP client directly at the gateway: `POST http://localhost:8085/mcp` with `Authorization: Bearer pat_xxx` (legacy `GET /sse` + `POST /message` is also supported for older clients). For clients that can't run the CLI, have the agent call `hub.sync_project` once at task start with `project_path=<its working directory>` and `register_project=true` — the project is auto-created (the agent supplies a semantic name) and the binding persists for the rest of the session.
-
-See the [User Manual](docs/user_manual.md) (Chinese) for the full onboarding guide per client.
-
-## Configuration
-
-All configuration is via environment variables (see [backend/.env.example](backend/.env.example) for the full annotated list). Key items:
-
-| Variable | Default | Notes |
-|---|---|---|
-| `CONSOLE_PORT` | `8084` | Console REST API |
-| `MCP_PORT` | `8085` | MCP Gateway |
-| `DB_TYPE` | `sqlite` | `sqlite` (dev) / `postgres` (prod) |
-| `DB_DSN` | `data/openagenthub.db` | SQLite path or Postgres DSN |
-| `JWT_SECRET` | dev placeholder | **must override in production** |
-| `ENCRYPTION_KEY` | dev placeholder | 32-byte key, encrypts connector credentials — **must override in production** |
-| `BOOTSTRAP_EMAIL` / `BOOTSTRAP_PASSWORD` | `admin@open-agent-hub.dev` / `admin123` | seeded admin — **change the password in production** |
-
-## Deployment
-
-### Backend (Docker)
-
-```bash
-cd backend
-docker build -t open-agent-hub .
-
-docker run -d --name open-agent-hub \
-  -p 8084:8084 -p 8085:8085 \
-  -v openagent-data:/app/data \
-  -e JWT_SECRET=<random-secret> \
-  -e ENCRYPTION_KEY=<random-32-byte-key> \
-  -e BOOTSTRAP_PASSWORD=<strong-password> \
-  open-agent-hub
-```
-
-Notes:
-
-- The three `-e` overrides above are required for production; the server prints security warnings if they are left at defaults.
-- With SQLite (default), persist `/app/data` via a volume as shown. For PostgreSQL, drop the volume and set `-e DB_TYPE=postgres -e DB_DSN='host=... user=... password=... dbname=...'`.
-- Schema migrations run automatically at startup (GORM AutoMigrate + a versioned data-migration runner); no manual migration step is needed.
-
-### Frontend (static hosting)
-
-The backend does **not** serve the frontend build — deploy `frontend/dist/` behind any static server and reverse-proxy the API paths:
-
-```bash
-cd frontend
-npm install
-npm run build      # outputs to frontend/dist/
-```
-
-Example nginx config:
-
-```nginx
-server {
-    listen 80;
-
-    root /var/www/open-agent-hub;   # frontend/dist/
-    index index.html;
-
-    location / {
-        try_files $uri $uri/ /index.html;   # SPA fallback
-    }
-
-    location /api/    { proxy_pass http://127.0.0.1:8084; }
-    location /health  { proxy_pass http://127.0.0.1:8084; }
-    location /mcp     { proxy_pass http://127.0.0.1:8085; }
-}
-```
-
-## Testing
-
-```bash
-# Unit & integration tests
-cd backend && go test ./...
-
-# End-to-end test (expects the backend on ports 18084/18085)
-cd backend && CONSOLE_PORT=18084 MCP_PORT=18085 go run ./cmd/server/   # terminal 1
-./scripts/e2e-test.sh                                                 # terminal 2, from repo root
-```
-
-## Project Layout
-
-```
-backend/    Go backend — Console REST API + MCP Gateway (cmd/server),
-            project-onboarding CLI (cmd/openagent)
-frontend/   React + TypeScript + Ant Design console (Vite)
-docs/       User manual & full product spec (Chinese)
-scripts/    start-backend.sh, e2e-test.sh
-```
 
 ## License
 
