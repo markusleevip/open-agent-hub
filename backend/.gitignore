@@ -1,0 +1,5 @@
+.gocache/*
+.gotmp/*
+data/*
+*.log
+tmp/

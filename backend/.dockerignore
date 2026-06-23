@@ -1,0 +1,9 @@
+# Build artifacts and local data — exclude from image build context
+data/
+.gocache/
+.gotmp/
+*.db
+*.log
+openagent-bin
+*.test
+.env

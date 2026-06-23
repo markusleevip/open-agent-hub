@@ -1,0 +1,41 @@
+node_modules/
+.npm-cache/
+.npm-tmp/
+dist/
+.DS_Store
+.idea/
+.vscode/
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output
+*.out
+*.prof
+
+# Go workspace file
+go.work
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config with secrets
+*.env
+.env.*
+
+# Build output
+/bin/
